@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 import streamlit as st
 import pandas as pd
-from pypdf import PdfReader
+from PyPDF2 import PdfReader
 from docx import Document
 
 from openai import OpenAI

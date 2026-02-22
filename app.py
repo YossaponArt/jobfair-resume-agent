@@ -2,6 +2,7 @@ import os
 import io
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -199,14 +200,28 @@ User input:
 {user_input}
 """.strip()
 
-    resp = client.responses.create(
-        model=model,
-        instructions=instructions,
-        input=prompt,
-    )
-    text = resp.output_text.strip()
-    text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
-    return json.loads(text)
+    # Retry with exponential backoff for rate limits / transient errors
+    last_err = None
+    for attempt in range(6):  # ~ up to ~1+2+4+8+16+32 seconds wait
+        try:
+            resp = client.responses.create(
+                model=model,
+                instructions=instructions,
+                input=prompt,
+            )
+            text = resp.output_text.strip()
+            text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
+            return json.loads(text)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            # Common transient signals
+            transient = ("rate limit" in msg) or ("429" in msg) or ("timeout" in msg) or ("temporarily" in msg)
+            if not transient or attempt == 5:
+                raise
+            time.sleep(2 ** attempt)
+
+    raise last_err
 
 def agent_parse_resume(client: OpenAI, model: str, resume_text: str) -> Dict[str, Any]:
     instructions = (
